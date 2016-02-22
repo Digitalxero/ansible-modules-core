@@ -716,24 +716,34 @@ def deploy_template(vsphere_client, guest, resource_pool, template_src, esxi, mo
 
     try:
         if not vmTarget:
-            cloneArgs = dict(resourcepool=rpmor, power_on=power_on_after_clone)
+            cloneArgs = dict(resourcepool=rpmor, power_on=power_on_after_clone,
+                             folder=vm_extra_config.pop("folder", None))
 
             if snapshot_to_clone is not None:
                 #check if snapshot_to_clone is specified, Create a Linked Clone instead of a full clone.
                 cloneArgs["linked"] = True
                 cloneArgs["snapshot"] = snapshot_to_clone
 
-            if vm_extra_config.get("folder") is not None:
-                # if a folder is specified, clone the VM into it
-                cloneArgs["folder"] = vm_extra_config.get("folder")
+            vm = vsphere_client.get_vm_by_name(guest)
+
+            # VM was created. If there is any extra config options specified, set
+            # them here , disconnect from vcenter, then exit.
+            if vm_extra_config:
+                vm.set_extra_config(vm_extra_config)
+
+            vmfacts = gather_facts(vm)
 
             vmTemplate.clone(guest, **cloneArgs)
             changed = True
         else:
+            vmfacts = gather_facts(vmTarget)
             changed = False
 
         vsphere_client.disconnect()
-        module.exit_json(changed=changed)
+        module.exit_json(
+            ansible_facts=vmfacts,
+            changed=True,
+            changes="Created VM %s" % guest)
     except Exception as e:
         module.fail_json(
             msg="Could not clone selected machine: %s" % e
